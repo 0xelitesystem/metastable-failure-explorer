@@ -1,0 +1,1440 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metastable Failure Explorer - why the outage outlives the trigger</title>
+<meta name="description" content="Solve the retry-amplification fixed point for a service and its dependency, enumerate every equilibrium, mark which are stable, and trace the hysteresis loop between the tipping point and the recovery point.">
+<link rel="canonical" href="https://0xelitesystem.github.io/metastable-failure-explorer/">
+<meta property="og:title" content="Metastable Failure Explorer">
+<meta property="og:description" content="Solve the retry-amplification fixed point, enumerate every equilibrium, and trace the hysteresis loop between the tipping point and the recovery point.">
+<meta property="og:url" content="https://0xelitesystem.github.io/metastable-failure-explorer/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%23151c33'/><path d='M14 72 L38 72 L38 34 L62 34 L62 72 L86 72' fill='none' stroke='%235fd6ab' stroke-width='9' stroke-linejoin='round' stroke-linecap='round'/></svg>">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Metastable Failure Explorer","applicationCategory":"DeveloperApplication","operatingSystem":"Any (browser)","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://0xelitesystem.github.io/metastable-failure-explorer/","author":{"@type":"Person","name":"0xelitesystem","url":"https://elitesystem.ai"}}
+</script>
+<script>
+(function () {
+  var t = 'dark';
+  try {
+    var v = localStorage.getItem('mfe-theme');
+    if (v === 'light' || v === 'dark') { t = v; }
+  } catch (e) { t = 'dark'; }
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<style>
+:root {
+  --bg: #0d1220;
+  --surface: #151d33;
+  --surface-2: #111729;
+  --ink: #e7eaf4;
+  --ink-soft: #b0b9d2;
+  --ink-faint: #7f8aa8;
+  --rule: #2a3455;
+  --rule-soft: #1d2540;
+  --good: #5fd6ab;
+  --good-deep: #7fe3c0;
+  --bad: #f2836a;
+  --bad-deep: #ff9c85;
+  --mid: #e2b356;
+  --link: #86aaff;
+  --code-bg: #0a0f1c;
+  --accent-ink: #0a1120;
+  --shadow: 0 1px 0 #1d2540;
+}
+:root[data-theme="light"] {
+  --bg: #f6f6f1;
+  --surface: #ffffff;
+  --surface-2: #eeeee6;
+  --ink: #10162a;
+  --ink-soft: #3b4560;
+  --ink-faint: #626d8a;
+  --rule: #c9ccd8;
+  --rule-soft: #e2e4ec;
+  --good: #0e6e55;
+  --good-deep: #0a5442;
+  --bad: #a63c22;
+  --bad-deep: #832d16;
+  --mid: #855c0c;
+  --link: #1f4fbf;
+  --code-bg: #f0f0e8;
+  --accent-ink: #ffffff;
+  --shadow: 0 1px 0 #e2e4ec;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+.wrap { max-width: 1060px; margin: 0 auto; padding: 20px 16px 72px; }
+header.top {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap; margin-bottom: 6px;
+}
+h1 { font-size: 1.6rem; line-height: 1.25; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: var(--ink-soft); margin: 0 0 20px; max-width: 68ch; }
+h2 {
+  font-size: 1.12rem; margin: 34px 0 10px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule); letter-spacing: -0.005em;
+}
+h3 { font-size: 0.98rem; margin: 20px 0 8px; color: var(--ink); }
+p { margin: 0 0 12px; }
+a { color: var(--link); }
+button {
+  font: inherit; cursor: pointer; border-radius: 7px;
+  border: 1px solid var(--rule); background: var(--surface-2); color: var(--ink);
+  padding: 7px 12px;
+}
+button:hover { border-color: var(--ink-faint); }
+button.primary { background: var(--good); color: var(--accent-ink); border-color: var(--good); font-weight: 650; }
+button.primary:hover { background: var(--good-deep); border-color: var(--good-deep); }
+.themebtn { padding: 6px 11px; font-size: 0.85rem; white-space: nowrap; }
+.card {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 11px; padding: 15px 16px; margin: 0 0 16px;
+}
+.lede {
+  border-left: 4px solid var(--good);
+}
+.lede.tipped { border-left-color: var(--bad); }
+.lede.mono-stable { border-left-color: var(--mid); }
+.verdict { font-size: 1.04rem; font-weight: 650; margin: 0 0 8px; line-height: 1.45; }
+.scope { font-size: 0.82rem; color: var(--ink-faint); margin: 10px 0 0; }
+.grid {
+  display: grid; gap: 12px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+}
+label.f { display: block; font-size: 0.82rem; color: var(--ink-soft); margin-bottom: 4px; }
+label.f b { color: var(--ink); font-weight: 600; }
+input[type="text"], input[type="number"], select {
+  width: 100%; font: inherit; padding: 7px 9px; border-radius: 7px;
+  border: 1px solid var(--rule); background: var(--surface-2); color: var(--ink);
+}
+input:focus, select:focus, button:focus { outline: 2px solid var(--link); outline-offset: 1px; }
+.hint { font-size: 0.76rem; color: var(--ink-faint); margin-top: 3px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+.stats { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 12px 0 0; }
+.stat { background: var(--surface-2); border: 1px solid var(--rule-soft); border-radius: 9px; padding: 9px 11px; }
+.stat .k { font-size: 0.73rem; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.stat .v { font-size: 1.16rem; font-weight: 680; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.stat .n { font-size: 0.76rem; color: var(--ink-soft); margin-top: 2px; }
+.v.good { color: var(--good); } .v.bad { color: var(--bad); } .v.mid { color: var(--mid); }
+.tablewrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 10px 0 0; }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 0.9rem; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+th { font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ink-faint); font-weight: 620; }
+td.n { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 0.74rem; font-weight: 650; border: 1px solid; }
+.pill.s { color: var(--good); border-color: var(--good); }
+.pill.u { color: var(--mid); border-color: var(--mid); }
+.pill.c { color: var(--bad); border-color: var(--bad); }
+code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 0.88em; }
+pre {
+  background: var(--code-bg); border: 1px solid var(--rule-soft); border-radius: 9px;
+  padding: 11px 13px; overflow-x: auto; font-size: 0.83rem; line-height: 1.55; margin: 10px 0 0;
+}
+.svgwrap { overflow-x: auto; margin: 12px 0 0; }
+svg.chart { display: block; width: 100%; height: auto; min-width: 320px; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 0.79rem; color: var(--ink-soft); margin-top: 8px; }
+.legend i { display: inline-block; width: 16px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.err { color: var(--bad); font-size: 0.88rem; margin: 10px 0 0; }
+.err ul { margin: 5px 0 0; padding-left: 20px; }
+.note { font-size: 0.86rem; color: var(--ink-soft); }
+ul.tight { margin: 0 0 12px; padding-left: 20px; }
+ul.tight li { margin-bottom: 5px; }
+footer {
+  margin-top: 44px; padding-top: 14px; border-top: 1px solid var(--rule);
+  font-size: 0.86rem; color: var(--ink-faint);
+  display: flex; gap: 8px 18px; flex-wrap: wrap;
+}
+.sr {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+@media (max-width: 520px) {
+  h1 { font-size: 1.34rem; }
+  .wrap { padding: 16px 12px 56px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div>
+    <h1>Metastable Failure Explorer</h1>
+    <p class="sub">Retries make a service its own sustaining effect. Enter a service, its dependency and its retry policy; this page solves the amplification fixed point, enumerates every equilibrium, and finds the two control values that bracket the hysteresis loop: the one that tips you in, and the very different one that gets you out.</p>
+  </div>
+  <button id="theme" class="themebtn" type="button">Light mode</button>
+</header>
+
+<div id="lede" class="card lede">
+  <p class="verdict" id="verdict">Solving.</p>
+  <div class="stats" id="ledeStats"></div>
+  <p class="scope" id="ledeScope"></p>
+</div>
+
+<h2>Model</h2>
+<div class="card">
+  <div class="grid">
+    <div>
+      <label class="f" for="in_c"><b>Dependency servers</b> (c)</label>
+      <input type="text" id="in_c" inputmode="numeric" value="25">
+      <div class="hint">Parallel servers in the M/M/c queue.</div>
+    </div>
+    <div>
+      <label class="f" for="in_s"><b>Mean service time</b> (ms)</label>
+      <input type="text" id="in_s" inputmode="decimal" value="25">
+      <div class="hint">Per server. Service rate mu = 1000 / this.</div>
+    </div>
+    <div>
+      <label class="f" for="in_l"><b>Arrival rate</b> (req/s)</label>
+      <input type="text" id="in_l" inputmode="decimal" value="600">
+      <div class="hint">First attempts only. Retries are derived.</div>
+    </div>
+    <div>
+      <label class="f" for="in_t"><b>Client timeout</b> (ms)</label>
+      <input type="text" id="in_t" inputmode="decimal" value="200">
+      <div class="hint">An attempt fails when its wait exceeds this.</div>
+    </div>
+    <div>
+      <label class="f" for="in_a"><b>Max attempts per request</b></label>
+      <input type="text" id="in_a" inputmode="numeric" value="3">
+      <div class="hint">1 means no retry. Google SRE guidance is 3.</div>
+    </div>
+    <div>
+      <label class="f" for="in_b"><b>Client retry budget</b> (percent, blank for none)</label>
+      <input type="text" id="in_b" inputmode="decimal" value="">
+      <div class="hint">Cap on retries as a share of first attempts.</div>
+    </div>
+    <div>
+      <label class="f" for="in_ctl"><b>Swept control</b></label>
+      <select id="in_ctl">
+        <option value="mu">Dependency service rate (capacity or latency shock)</option>
+        <option value="lambda">Offered load (arrival rate)</option>
+      </select>
+      <div class="hint">Service rate is the control that reproduces a tip at moderate utilization.</div>
+    </div>
+    <div>
+      <label class="f" for="in_lo"><b>Sweep range</b> (percent of baseline)</label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" id="in_lo" inputmode="decimal" value="50">
+        <input type="text" id="in_hi" inputmode="decimal" value="200">
+      </div>
+      <div class="hint">Low and high end of the control sweep.</div>
+    </div>
+  </div>
+  <div class="row">
+    <button class="primary" id="run" type="button">Solve</button>
+    <button id="ex1" type="button">Load example: capacity shock</button>
+    <button id="ex2" type="button">Same shock, retry budget on</button>
+    <button id="ex3" type="button">HotOS 2021 case study</button>
+    <button id="ex4" type="button">400 servers (overflow guard)</button>
+    <button id="copy" type="button">Copy report</button>
+  </div>
+  <div class="err" id="errors" hidden></div>
+  <p class="note" id="fixnote" style="margin-top:12px;"></p>
+</div>
+
+<h2>Equilibria of the entered model</h2>
+<div class="card">
+  <p class="note">The dependency sees <code>lambda_eff</code>, the total attempt rate. Each attempt fails with probability <code>p(lambda_eff)</code>, the M/M/c chance that a request waits longer than the client timeout. A request that fails is retried, so <code>lambda_eff = lambda * sum over i of p(lambda_eff) to the i</code>. Every root of that equation is an equilibrium. A root is stable when the slope of the right-hand side is below 1 there, which is what makes the collapsed root something the system stays in.</p>
+  <div class="tablewrap">
+    <table id="eqTable">
+      <thead><tr><th>Equilibrium</th><th>Attempt rate</th><th>Utilization</th><th>Timeout rate p</th><th>Goodput</th><th>Slope</th><th>State</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="svgwrap"><svg class="chart" id="fpChart" viewBox="0 0 760 340" role="img" aria-label="Amplification map against the identity line, with equilibria marked"></svg></div>
+  <div class="legend">
+    <span><i style="background:var(--good)"></i>amplified load F(lambda_eff)</span>
+    <span><i style="background:var(--ink-faint)"></i>identity line</span>
+    <span><i style="background:var(--bad)"></i>equilibrium</span>
+  </div>
+</div>
+
+<h2>Hysteresis: the way in and the way out are different numbers</h2>
+<div class="card">
+  <p class="note" id="hystIntro"></p>
+  <div class="stats" id="hystStats"></div>
+  <div class="svgwrap"><svg class="chart" id="hyChart" viewBox="0 0 760 340" role="img" aria-label="Hysteresis loop of attempt rate against the swept control"></svg></div>
+  <div class="legend">
+    <span><i style="background:var(--bad)"></i>leg 1: control moved toward failure</span>
+    <span><i style="background:var(--good)"></i>leg 2: control moved back</span>
+  </div>
+  <p class="note" id="hystNote" style="margin-top:12px;"></p>
+</div>
+
+<h2>Transient engine: what backoff actually changes</h2>
+<div class="card">
+  <p class="note">Delay does not appear anywhere in the fixed-point equation above, so a backoff control cannot move an equilibrium. It moves timing. This is a separate fluid simulation: retries are scheduled into future time bins by the backoff policy, and the timeout rate is re-evaluated from the instantaneous attempt rate in each bin. Same model, same equilibria, different path through them.</p>
+  <div class="grid">
+    <div>
+      <label class="f" for="tr_dur"><b>Trigger duration</b> (s)</label>
+      <input type="text" id="tr_dur" inputmode="decimal" value="0.5">
+    </div>
+    <div>
+      <label class="f" for="tr_dip"><b>Service rate during trigger</b> (percent)</label>
+      <input type="text" id="tr_dip" inputmode="decimal" value="50">
+    </div>
+    <div>
+      <label class="f" for="tr_base"><b>Base retry delay</b> (ms)</label>
+      <input type="text" id="tr_base" inputmode="decimal" value="2000">
+    </div>
+    <div>
+      <label class="f" for="tr_fac"><b>Backoff factor</b></label>
+      <input type="text" id="tr_fac" inputmode="decimal" value="2">
+    </div>
+    <div>
+      <label class="f" for="tr_cap"><b>Delay cap</b> (ms)</label>
+      <input type="text" id="tr_cap" inputmode="decimal" value="8000">
+    </div>
+    <div>
+      <label class="f" for="tr_hor"><b>Horizon</b> (s)</label>
+      <input type="text" id="tr_hor" inputmode="decimal" value="60">
+    </div>
+  </div>
+  <div class="row"><button id="runT" type="button">Run transient</button></div>
+  <div class="tablewrap">
+    <table id="trTable">
+      <thead><tr><th>Jitter policy</th><th>Peak attempt rate</th><th>Mean goodput, last quarter</th><th>Time at zero goodput</th><th>Outcome</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <div class="svgwrap"><svg class="chart" id="trChart" viewBox="0 0 760 340" role="img" aria-label="Attempt rate over time under three jitter policies"></svg></div>
+  <div class="legend">
+    <span><i style="background:var(--bad)"></i>no jitter</span>
+    <span><i style="background:var(--mid)"></i>equal jitter</span>
+    <span><i style="background:var(--good)"></i>full jitter</span>
+    <span><i style="background:var(--ink-faint)"></i>dependency capacity</span>
+  </div>
+  <p class="note" id="trNote" style="margin-top:12px;"></p>
+</div>
+
+<h2>Numerics, checked in the page</h2>
+<div class="card">
+  <p class="note">Erlang C written the textbook way needs <code>a^c / c!</code>. In float64, <code>171!</code> is not finite and <code>a^c</code> stops being finite well before that, so the textbook form returns a non-finite value on any fleet worth modelling. This page computes the same quantity in log space, using lgamma for the factorial term, so the ratio stays finite. These four lines are computed by this page, in your browser, from the model above.</p>
+  <div class="tablewrap">
+    <table id="numTable">
+      <thead><tr><th>Check</th><th>Log-space result</th><th>Independent result</th><th>Relative difference</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p class="note" id="numNote" style="margin-top:12px;"></p>
+</div>
+
+<h2>What this refuses to compute</h2>
+<div class="card">
+  <ul class="tight">
+    <li><b>Your production system.</b> Every verdict on this page is a property of the numbers in the Model box. Nothing here is fitted to, or predictive of, a real service.</li>
+    <li><b>A heavier tail than M/M/c.</b> Service times here are exponential, and the waiting-time tail is <code>P(W &gt; T) = C(c,a) * exp(-(c*mu - lambda) * T)</code>, which is exact for that model. Real service-time distributions have heavier tails, so a real dependency starts producing timeouts at a lower utilization than this model does. The bracketing structure survives; the specific tipping utilization does not.</li>
+    <li><b>Queue memory in the transient.</b> The transient engine is a fluid model: it evaluates the steady-state timeout rate at each bin's instantaneous attempt rate. It carries no backlog between bins, so it under-reports how long a real queue stays hot after a spike. Crossing the unstable equilibrium for one bin does not latch here; a real queue can latch on less.</li>
+    <li><b>Kingman's approximation.</b> Kingman gives a mean wait. The event that generates a retry is a timeout, which is a tail event, so this page uses the exact Erlang C waiting-time tail for the stated model instead of a mean-wait approximation with a timeout bolted on.</li>
+    <li><b>Correlated or contagious failure.</b> One client population, one dependency. No failover, no cache stampede, no cross-shard contagion, all of which are separate sustaining effects.</li>
+    <li><b>Per-attempt delay tables.</b> If you want the delay schedule itself, attempt by attempt, with jitter strategies and worst-case total wait, that is <a href="https://0xelitesystem.github.io/retry-backoff-calculator/">retry-backoff-calculator</a>. It models no amplification at all, which is exactly the gap this page fills.</li>
+  </ul>
+</div>
+
+<h2>Sources</h2>
+<div class="card">
+  <ul class="tight">
+    <li>Nathan Bronson, Abutalib Aghayev, Aleksey Charapko, Timothy Zhu. Metastable Failures in Distributed Systems. HotOS 2021. <a href="https://doi.org/10.1145/3458336.3465286">doi:10.1145/3458336.3465286</a>. The paper defines a metastable failure as a bad state that persists after the trigger is removed, sustained by a feedback effect that often involves work amplification, and names request retries as one of the most common of those sustaining mechanisms. Its section 2.1 worked example supplies the case-study fixture on this page.</li>
+    <li>Google, Site Reliability Engineering, chapter 21, Handling Overload, section Deciding to Retry. <a href="https://sre.google/sre-book/handling-overload/">sre.google/sre-book/handling-overload</a>. Source of the two retry-budget numbers this page uses as a preset: a per-request budget of up to three attempts, and a per-client budget that only retries while retries stay under a 10 percent share of requests, which the chapter states holds request growth to roughly 1.1x instead of the roughly 3x a bare three-attempt cap allows.</li>
+    <li>Google, Site Reliability Engineering, chapter 22, Addressing Cascading Failures, section Retries. <a href="https://sre.google/sre-book/addressing-cascading-failures/">sre.google/sre-book/addressing-cascading-failures</a>. Source of the guidance that retries should always use randomized exponential backoff, that retries per request should be limited, and that an overloaded backend should return a distinct status so callers back off instead of retrying. Randomized backoff and a retry budget are separate recommendations there; this page treats them as separate controls for that reason.</li>
+    <li>The Erlang C formula and the M/M/c waiting-time tail are standard queueing theory. This page implements them directly and checks its log-space implementation against an independent Erlang B recursion in the numerics table above.</li>
+  </ul>
+</div>
+
+<h2>Related</h2>
+<div class="card">
+  <ul class="tight">
+    <li><a href="https://0xelitesystem.github.io/retry-backoff-calculator/">retry-backoff-calculator</a> - the per-attempt delay table for one client: attempts, base delay, cap, jitter strategy, worst-case total wait. It answers how long a single request waits. This page answers what the whole client population does to the dependency.</li>
+    <li><a href="https://0xelitesystem.github.io/llm-timeout-budget/">llm-timeout-budget</a> - the same timeout-versus-tail question for a single request path across every layer that can time it out.</li>
+    <li><a href="https://github.com/0xelitesystem/idempotency-and-safe-retries-reference">idempotency-and-safe-retries-reference</a> - whether a request is safe to retry at all, which is the question that comes before how often.</li>
+    <li><a href="https://github.com/0xelitesystem/background-jobs-and-queues-basics-reference">background-jobs-and-queues-basics-reference</a> - queues, workers and dead-letter handling in plain language.</li>
+    <li><a href="https://github.com/0xelitesystem/incident-response-runbooks">incident-response-runbooks</a> - what to do at 3am once you are already in the bad state.</li>
+  </ul>
+</div>
+
+<footer>
+  <a href="https://elitesystem.ai">An elitesystem.ai tool</a>
+  <a href="https://github.com/0xelitesystem/metastable-failure-explorer">Source</a>
+  <a href="https://0xelitesystem.github.io/">More tools</a>
+</footer>
+
+</div>
+
+<script>
+var MFE = (function () {
+  'use strict';
+
+  var LANCZOS = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059, 12.507343278686905,
+    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7
+  ];
+
+  // Natural log of the gamma function. Lanczos, g = 7, n = 9.
+  function lgamma(z) {
+    if (!Number.isFinite(z)) return NaN;
+    if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lgamma(1 - z);
+    z -= 1;
+    var x = LANCZOS[0];
+    for (var i = 1; i < 9; i++) x += LANCZOS[i] / (z + i);
+    var t = z + 7.5;
+    return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+  }
+
+  // Erlang C, the chance an arrival has to wait at all, in log space.
+  // C(c,a) = 1 / (1 + exp(logS - logL)) where
+  //   logS = log sum over k of a^k / k!   for k = 0 to c-1
+  //   logL = c*ln(a) - lgamma(c+1) - ln(1 - a/c)
+  // The sum is accumulated relative to its own largest term, at k = floor(a),
+  // walking outward by the exact ratio a/k so no power or factorial is ever
+  // formed. Both factorials that survive into the answer go through lgamma.
+  // Nothing here overflows: at c = 4096 the textbook a^c / c! is not finite
+  // and this returns a usable number.
+  function erlangC(c, a) {
+    if (!Number.isFinite(c) || !Number.isFinite(a)) return NaN;
+    if (c < 1 || a < 0) return NaN;
+    if (a === 0) return 0;
+    var rho = a / c;
+    if (rho >= 1) return 1;
+    var la = Math.log(a);
+    var kmax = Math.floor(a);
+    if (kmax > c - 1) kmax = c - 1;
+    if (kmax < 0) kmax = 0;
+    var acc = 1, e = 1, k;
+    for (k = kmax; k > 0; k--) {
+      e = e * (k / a);
+      acc += e;
+      if (e < 1e-18) break;
+    }
+    e = 1;
+    for (k = kmax + 1; k <= c - 1; k++) {
+      e = e * (a / k);
+      acc += e;
+      if (e < 1e-18) break;
+    }
+    var d = (kmax - c) * la - lgamma(kmax + 1) + lgamma(c + 1) +
+      Math.log(acc) + Math.log(1 - rho);
+    if (!Number.isFinite(d)) return NaN;
+    if (d > 700) return 0;
+    if (d < -700) return 1;
+    return 1 / (1 + Math.exp(d));
+  }
+
+  // Independent check: Erlang B recursion, then C = B / (1 - rho*(1-B)).
+  function erlangCviaB(c, a) {
+    if (!Number.isFinite(c) || !Number.isFinite(a) || c < 1 || a < 0) return NaN;
+    var rho = a / c;
+    if (rho >= 1) return 1;
+    var B = 1;
+    for (var k = 1; k <= c; k++) B = (a * B) / (k + a * B);
+    return B / (1 - rho * (1 - B));
+  }
+
+  // The textbook form, kept so the page can show what it does at scale.
+  function erlangCnaive(c, a) {
+    var rho = a / c;
+    if (rho >= 1) return 1;
+    var f = 1, S = 0, pw = 1, k;
+    for (k = 0; k < c; k++) {
+      if (k > 0) { f = f * k; pw = pw * a; }
+      S += pw / f;
+    }
+    var fc = f * c, pwc = pw * a;
+    var L = pwc / (fc * (1 - rho));
+    return L / (S + L);
+  }
+
+  // P(W > T) for M/M/c with FCFS: C(c,a) * exp(-(c*mu - x) * T).
+  function pFail(x, c, mu, T) {
+    var cap = c * mu;
+    if (!Number.isFinite(x) || !Number.isFinite(cap) || !Number.isFinite(T)) return NaN;
+    if (x >= cap) return 1;
+    if (x <= 0) return 0;
+    var p = erlangC(c, x / mu) * Math.exp(-(cap - x) * T);
+    if (!Number.isFinite(p)) return NaN;
+    return p < 0 ? 0 : (p > 1 ? 1 : p);
+  }
+
+  // Largest amplification multiplier the policy allows.
+  function maxMult(m) {
+    var worst = m.attempts - 1;
+    if (m.budget !== null && m.budget < worst) worst = m.budget;
+    return 1 + worst;
+  }
+
+  // Amplified attempt rate implied by an assumed attempt rate x.
+  function ampF(x, m) {
+    var p = pFail(x, m.c, m.mu, m.T);
+    if (!Number.isFinite(p)) return NaN;
+    var extra = 0, t = 1;
+    for (var i = 1; i <= m.attempts - 1; i++) { t *= p; extra += t; }
+    if (m.budget !== null && extra > m.budget) extra = m.budget;
+    return m.lambda * (1 + extra);
+  }
+
+  function goodput(x, m) {
+    var p = pFail(x, m.c, m.mu, m.T);
+    if (!Number.isFinite(p)) return NaN;
+    return m.lambda * (1 - Math.pow(p, m.attempts));
+  }
+
+  function gridFor(c) {
+    var g = Math.round(2400000 / Math.max(1, c));
+    if (g < 360) g = 360;
+    if (g > 2400) g = 2400;
+    return g;
+  }
+
+  // Every root of ampF(x) - x = 0 on [lambda, lambda*maxMult], with stability.
+  function solve(m, grid) {
+    grid = grid || gridFor(m.c);
+    var lo = m.lambda, hi = m.lambda * maxMult(m);
+    if (!(hi > lo)) hi = lo * (1 + 1e-12);
+    var G = function (x) { return ampF(x, m) - x; };
+    var roots = [];
+    var prevX = lo, prevG = G(lo), i;
+    if (prevG === 0) roots.push(lo);
+    for (i = 1; i <= grid; i++) {
+      var x = lo + (hi - lo) * (i / grid);
+      var g = G(x);
+      if (!Number.isFinite(g)) { prevX = x; prevG = g; continue; }
+      if (g === 0) { roots.push(x); }
+      else if (Number.isFinite(prevG) && ((prevG < 0 && g > 0) || (prevG > 0 && g < 0))) {
+        var a = prevX, b = x, ga = prevG, it;
+        for (it = 0; it < 120; it++) {
+          var mid = 0.5 * (a + b);
+          var gm = G(mid);
+          if (!Number.isFinite(gm)) break;
+          if (gm === 0) { a = mid; b = mid; break; }
+          if ((ga < 0) === (gm < 0)) { a = mid; ga = gm; } else { b = mid; }
+        }
+        roots.push(0.5 * (a + b));
+      }
+      prevX = x; prevG = g;
+    }
+    var span = Math.max(1e-12, hi - lo);
+    var out = [];
+    for (i = 0; i < roots.length; i++) {
+      if (out.length === 0 || Math.abs(roots[i] - out[out.length - 1].x) > 1e-9 * span) {
+        out.push({ x: roots[i] });
+      }
+    }
+    for (i = 0; i < out.length; i++) {
+      var xr = out[i].x;
+      var h = Math.max(1e-12, 1e-7 * span);
+      var xa = Math.max(lo, xr - h), xb = Math.min(hi, xr + h);
+      var slope = (xb > xa) ? (ampF(xb, m) - ampF(xa, m)) / (xb - xa) : 0;
+      if (!Number.isFinite(slope)) slope = 0;
+      out[i].slope = slope;
+      out[i].stable = slope < 1;
+      out[i].p = pFail(xr, m.c, m.mu, m.T);
+      out[i].rho = xr / (m.c * m.mu);
+      out[i].goodput = goodput(xr, m);
+    }
+    return out;
+  }
+
+  // ampF is non-decreasing, so relaxation from x0 walks to the nearest root
+  // in the direction of ampF(x0) - x0. No iteration needed.
+  function relax(m, x0, roots) {
+    if (roots.length === 0) return null;
+    var f = ampF(x0, m), i;
+    if (!Number.isFinite(f)) return roots[0];
+    if (f > x0) {
+      for (i = 0; i < roots.length; i++) if (roots[i].x >= x0 - 1e-12) return roots[i];
+      return roots[roots.length - 1];
+    }
+    if (f < x0) {
+      for (i = roots.length - 1; i >= 0; i--) if (roots[i].x <= x0 + 1e-12) return roots[i];
+      return roots[0];
+    }
+    var best = roots[0], bd = Infinity;
+    for (i = 0; i < roots.length; i++) {
+      var d = Math.abs(roots[i].x - x0);
+      if (d < bd) { bd = d; best = roots[i]; }
+    }
+    return best;
+  }
+
+  // Separator between the low branch and the amplified branch.
+  function midSplit(m) { return m.lambda * (1 + (maxMult(m) - 1) / 2); }
+
+  function withControl(m, control, f) {
+    var o = {
+      c: m.c, mu: m.mu, T: m.T, lambda: m.lambda,
+      attempts: m.attempts, budget: m.budget
+    };
+    if (control === 'lambda') o.lambda = m.lambda * f; else o.mu = m.mu * f;
+    return o;
+  }
+
+  function healthyReachable(m, grid) {
+    var r = solve(m, grid);
+    if (r.length === 0) return false;
+    var s = relax(m, m.lambda, r);
+    return s !== null && s.x <= midSplit(m);
+  }
+
+  function collapsedPersists(m, grid) {
+    var r = solve(m, grid);
+    if (r.length === 0) return false;
+    var s = relax(m, m.lambda * maxMult(m), r);
+    return s !== null && s.x > midSplit(m);
+  }
+
+  // Sample pred on a coarse ladder, take the first bracketing pair, bisect it.
+  function findTransition(m, control, fA, fB, pred, samples) {
+    samples = samples || 40;
+    var prevF = fA, prevV = pred(withControl(m, control, fA)), i;
+    for (i = 1; i <= samples; i++) {
+      var f = fA + (fB - fA) * (i / samples);
+      var v = pred(withControl(m, control, f));
+      if (v !== prevV) {
+        var a = prevF, b = f, va = prevV;
+        for (var it = 0; it < 44; it++) {
+          var mid = 0.5 * (a + b);
+          if (pred(withControl(m, control, mid)) === va) a = mid; else b = mid;
+        }
+        return { f: 0.5 * (a + b), from: va, to: v };
+      }
+      prevF = f; prevV = v;
+    }
+    return null;
+  }
+
+  function sweepSteps(c) {
+    var g = Math.round(1200000 / Math.max(1, c));
+    if (g < 300) g = 300;
+    if (g > 1200) g = 1200;
+    var s = Math.round(15000000 / Math.max(1, c * g));
+    if (s < 20) s = 20;
+    if (s > 110) s = 110;
+    return { grid: g, steps: s };
+  }
+
+  // Baseline to the far end, then all the way back. State carries over, which
+  // is what makes the loop open.
+  function hysteresis(m, control, fLo, fHi) {
+    var cfg = sweepSteps(m.c);
+    var far = (control === 'lambda') ? fHi : fLo;
+    var back = (control === 'lambda') ? fLo : fHi;
+    var legs = [[1, far], [far, back]];
+    var out = [[], []];
+    var mm = withControl(m, control, 1);
+    var roots = solve(mm, cfg.grid);
+    var st = relax(mm, mm.lambda, roots);
+    var x = st ? st.x : mm.lambda;
+    for (var L = 0; L < 2; L++) {
+      var a = legs[L][0], b = legs[L][1];
+      for (var i = 0; i <= cfg.steps; i++) {
+        var f = a + (b - a) * (i / cfg.steps);
+        var mf = withControl(m, control, f);
+        var rs = solve(mf, cfg.grid);
+        var s = relax(mf, x, rs);
+        if (s) x = s.x;
+        out[L].push({
+          f: f, x: x,
+          p: pFail(x, mf.c, mf.mu, mf.T),
+          g: goodput(x, mf),
+          rho: x / (mf.c * mf.mu),
+          cap: mf.c * mf.mu
+        });
+      }
+    }
+    return { down: out[0], up: out[1], steps: cfg.steps, grid: cfg.grid };
+  }
+
+  var JITTERS = ['none', 'equal', 'full'];
+
+  function spread(arr, t0, d, dt, mass, jitter, N) {
+    var lo, hi;
+    if (jitter === 'none') { lo = d; hi = d; }
+    else if (jitter === 'equal') { lo = d / 2; hi = d; }
+    else { lo = 0; hi = d; }
+    var b, b0, b1;
+    if (hi - lo < dt) {
+      b = t0 + Math.max(1, Math.round(d / dt));
+      if (b <= N) arr[b] += mass;
+      return;
+    }
+    b0 = t0 + Math.max(1, Math.round(lo / dt));
+    b1 = t0 + Math.max(1, Math.round(hi / dt));
+    var n = b1 - b0 + 1;
+    var per = mass / n;
+    for (b = b0; b <= b1; b++) if (b <= N) arr[b] += per;
+  }
+
+  // Fluid transient. Mass per bin is requests, not a rate.
+  function transient(m, sh, bo, horizon, maxSteps) {
+    maxSteps = maxSteps || 12000;
+    var N = maxSteps;
+    var dt = horizon / N;
+    var A = m.attempts;
+    var sched = [], j;
+    for (j = 0; j < A; j++) sched.push(new Float64Array(N + 2));
+    var xs = new Float64Array(N), gs = new Float64Array(N), caps = new Float64Array(N);
+    var peak = 0, peakT = 0, dropped = 0;
+    var mass = new Float64Array(A);
+    for (var t = 0; t < N; t++) {
+      var time = t * dt;
+      var mu = (time >= sh.tStart && time < sh.tStart + sh.dur) ? m.mu * sh.factor : m.mu;
+      var total = 0, q;
+      for (q = 0; q < A; q++) {
+        mass[q] = sched[q][t] + (q === 0 ? m.lambda * dt : 0);
+        total += mass[q];
+      }
+      var x = total / dt;
+      var p = pFail(x, m.c, mu, m.T);
+      if (!Number.isFinite(p)) p = 1;
+      xs[t] = x;
+      caps[t] = m.c * mu;
+      gs[t] = (total * (1 - p)) / dt;
+      if (x > peak) { peak = x; peakT = time; }
+      var want = 0, k;
+      for (k = 0; k < A - 1; k++) want += mass[k] * p;
+      var scale = 1;
+      if (m.budget !== null) {
+        var allow = m.budget * m.lambda * dt;
+        if (want > allow && want > 0) { scale = allow / want; dropped += (want - allow); }
+      }
+      for (k = 0; k < A - 1; k++) {
+        var fail = mass[k] * p * scale;
+        if (!(fail > 0)) continue;
+        var d = Math.min(bo.cap, bo.base * Math.pow(bo.factor, k));
+        spread(sched[k + 1], t, d, dt, fail, bo.jitter, N);
+      }
+    }
+    var from = Math.floor(N * 0.75), n = N - from, sum = 0, zero = 0, mn = Infinity, mx = 0;
+    for (var i = from; i < N; i++) {
+      sum += gs[i];
+      if (gs[i] < 1e-9) zero++;
+      if (gs[i] < mn) mn = gs[i];
+      if (gs[i] > mx) mx = gs[i];
+    }
+    return {
+      xs: xs, gs: gs, caps: caps, dt: dt, N: N,
+      peak: peak, peakT: peakT, dropped: dropped,
+      tailMean: n > 0 ? sum / n : NaN,
+      tailZero: n > 0 ? zero / n : NaN,
+      tailMin: mn === Infinity ? NaN : mn,
+      tailMax: mx
+    };
+  }
+
+  var NUMRE = /^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/;
+
+  function parseNum(s) {
+    if (typeof s !== 'string') return NaN;
+    var t = s.trim();
+    if (t === '') return NaN;
+    if (!NUMRE.test(t)) return NaN;
+    var v = Number(t);
+    return Number.isFinite(v) ? v : NaN;
+  }
+
+  var MAX_SERVERS = 4096;
+
+  // raw is a plain object of strings. Returns { ok, model, control, fLo, fHi, errors }.
+  function validate(raw) {
+    var e = [];
+    function get(key) {
+      return Object.prototype.hasOwnProperty.call(raw, key) ? raw[key] : '';
+    }
+    var cs = get('c'), ss = get('s'), ls = get('l'), ts = get('t'), as = get('a'), bs = get('b');
+    var c = parseNum(cs), s = parseNum(ss), l = parseNum(ls), T = parseNum(ts), A = parseNum(as);
+
+    if (String(cs).trim() === '') e.push('Dependency servers is empty.');
+    else if (!Number.isFinite(c)) e.push('Dependency servers is not a number.');
+    else if (c < 1) e.push('Dependency servers must be at least 1.');
+    else if (Math.floor(c) !== c) e.push('Dependency servers must be a whole number.');
+    else if (c > MAX_SERVERS) e.push('Dependency servers is capped at ' + MAX_SERVERS + ' here, because the Erlang C sum is linear in c and the sweep runs it thousands of times.');
+
+    if (String(ss).trim() === '') e.push('Mean service time is empty.');
+    else if (!Number.isFinite(s)) e.push('Mean service time is not a number.');
+    else if (s <= 0) e.push('Mean service time must be greater than 0.');
+    else if (s > 3600000) e.push('Mean service time above one hour is out of range.');
+
+    if (String(ls).trim() === '') e.push('Arrival rate is empty.');
+    else if (!Number.isFinite(l)) e.push('Arrival rate is not a number.');
+    else if (l <= 0) e.push('Arrival rate must be greater than 0.');
+    else if (l > 1e9) e.push('Arrival rate above 1e9 per second is out of range.');
+
+    if (String(ts).trim() === '') e.push('Client timeout is empty.');
+    else if (!Number.isFinite(T)) e.push('Client timeout is not a number.');
+    else if (T <= 0) e.push('Client timeout must be greater than 0.');
+    else if (T > 3600000) e.push('Client timeout above one hour is out of range.');
+
+    if (String(as).trim() === '') e.push('Max attempts is empty.');
+    else if (!Number.isFinite(A)) e.push('Max attempts is not a number.');
+    else if (Math.floor(A) !== A) e.push('Max attempts must be a whole number.');
+    else if (A < 1) e.push('Max attempts must be at least 1. Use 1 for no retry.');
+    else if (A > 20) e.push('Max attempts is capped at 20.');
+
+    var budget = null;
+    if (String(bs).trim() !== '') {
+      var b = parseNum(bs);
+      if (!Number.isFinite(b)) e.push('Retry budget is not a number. Leave it blank for no budget.');
+      else if (b < 0) e.push('Retry budget cannot be negative.');
+      else if (b > 10000) e.push('Retry budget above 10000 percent is out of range.');
+      else budget = b / 100;
+    }
+
+    var control = get('ctl') === 'lambda' ? 'lambda' : 'mu';
+    var fLo = parseNum(get('lo')), fHi = parseNum(get('hi'));
+    if (!Number.isFinite(fLo) || !Number.isFinite(fHi)) e.push('Sweep range needs two numbers in percent.');
+    else {
+      fLo = fLo / 100; fHi = fHi / 100;
+      if (fLo <= 0) e.push('Sweep low end must be greater than 0 percent.');
+      if (fHi <= fLo) e.push('Sweep high end must be above the low end.');
+      if (fHi > 100) e.push('Sweep high end is capped at 10000 percent.');
+    }
+
+    if (e.length) return { ok: false, errors: e };
+
+    var mu = 1000 / s;
+    var model = { c: c, mu: mu, T: T / 1000, lambda: l, attempts: A, budget: budget };
+    var cap = c * mu;
+    var warn = [];
+    if (l >= cap) {
+      warn.push('First attempts alone are at or above the dependency capacity of ' +
+        cap.toFixed(2) + ' req/s. There is no healthy equilibrium to leave, with or without retries.');
+    }
+    return { ok: true, model: model, control: control, fLo: fLo, fHi: fHi, warnings: warn };
+  }
+
+  function analyze(model, control, fLo, fHi) {
+    var eq = solve(model);
+    var cap = model.c * model.mu;
+    var hy = hysteresis(model, control, fLo, fHi);
+    var tip = findTransition(model, control,
+      (control === 'lambda') ? 1 : 1,
+      (control === 'lambda') ? fHi : fLo,
+      function (mm) { return healthyReachable(mm, hy.grid); }, 44);
+    var rec = findTransition(model, control, fLo, fHi,
+      function (mm) { return collapsedPersists(mm, hy.grid); }, 60);
+    var bistable = eq.length >= 2;
+    var stableCount = 0;
+    for (var i = 0; i < eq.length; i++) if (eq[i].stable) stableCount++;
+    return {
+      model: model, control: control, eq: eq, cap: cap, hy: hy,
+      tip: tip, rec: rec, bistable: bistable, stableCount: stableCount,
+      maxMult: maxMult(model),
+      util: model.lambda / cap,
+      k: model.T * model.mu
+    };
+  }
+
+  return {
+    lgamma: lgamma, erlangC: erlangC, erlangCviaB: erlangCviaB, erlangCnaive: erlangCnaive,
+    pFail: pFail, ampF: ampF, goodput: goodput, maxMult: maxMult, solve: solve,
+    relax: relax, midSplit: midSplit, withControl: withControl,
+    healthyReachable: healthyReachable, collapsedPersists: collapsedPersists,
+    findTransition: findTransition, hysteresis: hysteresis, transient: transient,
+    parseNum: parseNum, validate: validate, analyze: analyze, JITTERS: JITTERS,
+    MAX_SERVERS: MAX_SERVERS
+  };
+})();
+
+if (typeof document !== 'undefined') (function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  var state = { report: null, tr: null, fixture: '' };
+
+  function fmt(v, d) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return 'n/a';
+    if (v !== 0 && Math.abs(v) < 1e-4) return v.toExponential(2);
+    return v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+  function pct(v, d) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) return 'n/a';
+    return fmt(v * 100, d === undefined ? 2 : d) + '%';
+  }
+  function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+  function el(tag, cls, txt) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (txt !== undefined) n.textContent = txt;
+    return n;
+  }
+  function svg(tag, attrs) {
+    var n = document.createElementNS(SVGNS, tag);
+    for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) n.setAttribute(k, String(attrs[k]));
+    return n;
+  }
+  function stat(parent, k, v, cls, note) {
+    var d = el('div', 'stat');
+    d.appendChild(el('div', 'k', k));
+    d.appendChild(el('div', 'v' + (cls ? ' ' + cls : ''), v));
+    if (note) d.appendChild(el('div', 'n', note));
+    parent.appendChild(d);
+  }
+
+  function readRaw() {
+    return {
+      c: $('in_c').value, s: $('in_s').value, l: $('in_l').value,
+      t: $('in_t').value, a: $('in_a').value, b: $('in_b').value,
+      ctl: $('in_ctl').value, lo: $('in_lo').value, hi: $('in_hi').value
+    };
+  }
+
+  function showErrors(list) {
+    var box = $('errors');
+    clear(box);
+    if (!list || !list.length) { box.hidden = true; return; }
+    box.hidden = false;
+    box.appendChild(el('div', null, list.length === 1 ? 'Cannot solve. One problem with the model:' : 'Cannot solve. ' + list.length + ' problems with the model:'));
+    var ul = el('ul');
+    for (var i = 0; i < list.length; i++) ul.appendChild(el('li', null, list[i]));
+    box.appendChild(ul);
+  }
+
+  var CTLNAME = Object.create(null);
+  CTLNAME.mu = 'dependency service rate';
+  CTLNAME.lambda = 'offered load';
+
+  function ctlName(k) {
+    return Object.prototype.hasOwnProperty.call(CTLNAME, k) ? CTLNAME[k] : 'control';
+  }
+
+  function run() {
+    var v = MFE.validate(readRaw());
+    if (!v.ok) {
+      showErrors(v.errors);
+      $('verdict').textContent = 'Not solved. Fix the model inputs above.';
+      clear($('ledeStats'));
+      $('ledeScope').textContent = '';
+      clear($('eqTable').tBodies[0]);
+      clear($('fpChart')); clear($('hyChart')); clear($('trChart'));
+      clear($('numTable').tBodies[0]);
+      $('hystStats') && clear($('hystStats'));
+      $('hystIntro').textContent = ''; $('hystNote').textContent = '';
+      $('numNote').textContent = '';
+      clear($('trTable').tBodies[0]);
+      $('trNote').textContent = '';
+      state.report = null; state.tr = null;
+      return;
+    }
+    showErrors(v.warnings && v.warnings.length ? v.warnings : null);
+    var r = MFE.analyze(v.model, v.control, v.fLo, v.fHi);
+    state.report = r;
+    renderLede(r);
+    renderEq(r);
+    renderHyst(r);
+    renderNum(r);
+    runTransient();
+  }
+
+  function renderLede(r) {
+    var box = $('lede'), vd = $('verdict'), st = $('ledeStats');
+    clear(st);
+    box.className = 'card lede';
+    var name = ctlName(r.control);
+    var tipF = r.tip ? r.tip.f : NaN;
+    var recF = r.rec ? r.rec.f : NaN;
+    var msg;
+    if (r.bistable) {
+      box.className = 'card lede tipped';
+      msg = 'The entered model has ' + r.eq.length + ' equilibria at baseline, ' + r.stableCount +
+        ' of them stable. It is already in the vulnerable state: healthy right now at ' +
+        pct(r.util, 1) + ' utilization, and holding a second stable state at ' +
+        fmt(r.eq[r.eq.length - 1].x, 1) + ' req/s that it will stay in once something puts it there.';
+    } else if (r.eq.length === 1 && r.eq[0].p > 0.5) {
+      box.className = 'card lede tipped';
+      msg = 'The entered model has exactly one equilibrium and it is the collapsed one, at ' +
+        fmt(r.eq[0].x, 1) + ' req/s with ' + pct(r.eq[0].p, 1) +
+        ' of attempts timing out. There is no healthy state to return to at these inputs.';
+    } else {
+      box.className = 'card lede mono-stable';
+      msg = 'The entered model has exactly one equilibrium, the healthy one, at ' +
+        fmt(r.eq[0].x, 1) + ' req/s. Retry amplification is capped below the dependency capacity, ' +
+        'so there is no second state for a trigger to push it into.';
+    }
+    vd.textContent = msg;
+
+    stat(st, 'Baseline utilization', pct(r.util, 1), null, fmt(r.model.lambda, 0) + ' of ' + fmt(r.cap, 0) + ' req/s');
+    stat(st, 'Worst-case amplification', fmt(r.maxMult, 2) + 'x', r.maxMult * r.model.lambda >= r.cap ? 'bad' : 'good',
+      fmt(r.maxMult * r.model.lambda, 0) + ' req/s vs ' + fmt(r.cap, 0) + ' capacity');
+    if (Number.isFinite(tipF)) {
+      stat(st, 'Tips at ' + name, pct(tipF, 2), 'bad', 'of baseline');
+    } else {
+      stat(st, 'Tips at ' + name, 'not in range', 'good', 'no tip inside the swept range');
+    }
+    if (Number.isFinite(recF)) {
+      stat(st, 'Recovers at ' + name, pct(recF, 2), 'good', 'of baseline');
+    } else {
+      stat(st, 'Recovers at ' + name, 'not in range', null, 'widen the sweep range');
+    }
+    if (Number.isFinite(tipF) && Number.isFinite(recF)) {
+      var gap = (r.control === 'lambda') ? (tipF - recF) : (recF - tipF);
+      stat(st, 'Hysteresis width', pct(Math.abs(gap), 2), 'mid', 'gap between the two');
+    }
+    $('ledeScope').textContent =
+      'Every number on this page is a property of the model in the box below, computed from it. ' +
+      'It is not a measurement of, or a prediction about, any real service.';
+  }
+
+  function renderEq(r) {
+    var tb = $('eqTable').tBodies[0];
+    clear(tb);
+    for (var i = 0; i < r.eq.length; i++) {
+      var e = r.eq[i];
+      var tr = document.createElement('tr');
+      var kind, cls;
+      if (!e.stable) { kind = 'unstable'; cls = 'u'; }
+      else if (e.p > 0.5 || e.rho >= 1) { kind = 'stable, collapsed'; cls = 'c'; }
+      else { kind = 'stable, healthy'; cls = 's'; }
+      var cells = [
+        String(i + 1),
+        fmt(e.x, 2) + ' req/s',
+        pct(e.rho, 2),
+        Number.isFinite(e.p) ? (e.p < 1e-4 ? e.p.toExponential(2) : pct(e.p, 3)) : 'n/a',
+        fmt(e.goodput, 2) + ' req/s',
+        fmt(e.slope, 3)
+      ];
+      for (var j = 0; j < cells.length; j++) {
+        var td = el('td', j === 0 ? null : 'n', cells[j]);
+        tr.appendChild(td);
+      }
+      var last = el('td');
+      last.appendChild(el('span', 'pill ' + cls, kind));
+      tr.appendChild(last);
+      tb.appendChild(tr);
+    }
+    drawFp(r);
+  }
+
+  function axes(s, W, H, pad, xlab, ylab) {
+    s.appendChild(svg('line', { x1: pad.l, y1: H - pad.b, x2: W - pad.r, y2: H - pad.b, stroke: 'var(--rule)', 'stroke-width': 1 }));
+    s.appendChild(svg('line', { x1: pad.l, y1: pad.t, x2: pad.l, y2: H - pad.b, stroke: 'var(--rule)', 'stroke-width': 1 }));
+    var tx = svg('text', { x: (pad.l + W - pad.r) / 2, y: H - 6, fill: 'var(--ink-faint)', 'font-size': 12, 'text-anchor': 'middle' });
+    tx.textContent = xlab; s.appendChild(tx);
+    var ty = svg('text', { x: 12, y: (pad.t + H - pad.b) / 2, fill: 'var(--ink-faint)', 'font-size': 12, 'text-anchor': 'middle', transform: 'rotate(-90 12 ' + ((pad.t + H - pad.b) / 2) + ')' });
+    ty.textContent = ylab; s.appendChild(ty);
+  }
+
+  function tick(s, x, y, txt, anchor) {
+    var t = svg('text', { x: x, y: y, fill: 'var(--ink-faint)', 'font-size': 11, 'text-anchor': anchor || 'middle' });
+    t.textContent = txt; s.appendChild(t);
+  }
+
+  function drawFp(r) {
+    var s = $('fpChart'); clear(s);
+    var W = 760, H = 340, pad = { l: 68, r: 16, t: 16, b: 44 };
+    var lo = r.model.lambda, hi = r.model.lambda * r.maxMult;
+    if (!(hi > lo)) hi = lo * 1.0001;
+    var yhi = hi;
+    var X = function (v) { return pad.l + (v - lo) / (hi - lo) * (W - pad.l - pad.r); };
+    var Y = function (v) { return H - pad.b - (v - lo) / (yhi - lo) * (H - pad.t - pad.b); };
+    axes(s, W, H, pad, 'assumed attempt rate lambda_eff (req/s)', 'implied attempt rate (req/s)');
+    var i, n = 320, d = '';
+    for (i = 0; i <= n; i++) {
+      var x = lo + (hi - lo) * (i / n);
+      var f = MFE.ampF(x, r.model);
+      if (!Number.isFinite(f)) continue;
+      d += (d ? 'L' : 'M') + X(x).toFixed(2) + ' ' + Y(f).toFixed(2) + ' ';
+    }
+    s.appendChild(svg('line', { x1: X(lo), y1: Y(lo), x2: X(hi), y2: Y(hi), stroke: 'var(--ink-faint)', 'stroke-width': 1.4, 'stroke-dasharray': '5 4' }));
+    if (d) s.appendChild(svg('path', { d: d, fill: 'none', stroke: 'var(--good)', 'stroke-width': 2.4 }));
+    for (i = 0; i < r.eq.length; i++) {
+      var e = r.eq[i];
+      s.appendChild(svg('circle', { cx: X(e.x), cy: Y(e.x), r: 5.5, fill: e.stable ? 'var(--bad)' : 'var(--bg)', stroke: 'var(--bad)', 'stroke-width': 2 }));
+    }
+    tick(s, X(lo), H - pad.b + 16, fmt(lo, 0), 'start');
+    tick(s, X(hi), H - pad.b + 16, fmt(hi, 0), 'end');
+    tick(s, pad.l - 8, Y(lo) + 4, fmt(lo, 0), 'end');
+    tick(s, pad.l - 8, Y(yhi) + 4, fmt(yhi, 0), 'end');
+    var capx = r.cap;
+    if (capx > lo && capx < hi) {
+      s.appendChild(svg('line', { x1: X(capx), y1: pad.t, x2: X(capx), y2: H - pad.b, stroke: 'var(--mid)', 'stroke-width': 1, 'stroke-dasharray': '3 4' }));
+      tick(s, X(capx), pad.t + 12, 'capacity', 'middle');
+    }
+  }
+
+  function renderHyst(r) {
+    var name = ctlName(r.control);
+    var st = $('hystStats'); clear(st);
+    var tipF = r.tip ? r.tip.f : NaN, recF = r.rec ? r.rec.f : NaN;
+
+    $('hystIntro').textContent =
+      'The sweep starts at baseline on the branch the system is actually on, moves the ' + name +
+      ' to the far end of the range, then brings it all the way back. State carries from step to step, ' +
+      'so each point is the equilibrium the system relaxes to from where it already was, not the ' +
+      'equilibrium you would get by solving that control value cold. That is the whole difference ' +
+      'between the two legs.';
+
+    stat(st, 'Swept control', name, null, 'baseline is 100 percent');
+    if (Number.isFinite(tipF)) stat(st, 'Healthy branch ends', pct(tipF, 3), 'bad', 'the tipping point');
+    else stat(st, 'Healthy branch ends', 'not in range', 'good', 'nothing tips inside the sweep');
+    if (Number.isFinite(recF)) stat(st, 'Collapsed branch ends', pct(recF, 3), 'good', 'the recovery point');
+    else stat(st, 'Collapsed branch ends', 'not in range', null, 'widen the sweep');
+    stat(st, 'Sweep resolution', r.hy.steps + ' steps per leg', null, r.hy.grid + ' grid points per solve');
+
+    drawHy(r);
+
+    var note;
+    if (Number.isFinite(tipF) && Number.isFinite(recF)) {
+      if (r.control === 'mu') {
+        var restores = recF > 1;
+        note = 'In the entered model the ' + name + ' has to fall to ' + pct(tipF, 3) +
+          ' of baseline before the healthy branch stops existing, and has to reach ' + pct(recF, 3) +
+          ' of baseline before the collapsed branch stops existing. ' +
+          (restores
+            ? 'Those are on opposite sides of 100 percent, which is the honest version of traffic is back to normal and we are still down: restoring the dependency to exactly what it was is not enough, because the retry load the system is now generating is larger than the load that broke it. This model needs ' + pct(recF, 2) + ' of the original service rate, an overbuild of ' + pct(recF - 1, 2) + ', to leave the collapsed branch.'
+            : 'Both are below 100 percent here, so this model self-heals once the shock passes.');
+      } else {
+        note = 'In the entered model the offered load has to reach ' + pct(tipF, 3) +
+          ' of baseline, which is ' + pct(tipF * r.util, 2) +
+          ' utilization, before the healthy branch stops existing, and has to fall to ' + pct(recF, 3) +
+          ' of baseline before the collapsed branch stops existing. Note how far right the tipping point sits: ' +
+          'sweeping offered load alone does nothing until utilization is nearly saturated. That is why offered load ' +
+          'is a poor story for an outage that started at moderate utilization, and why the service-rate control is the primary one here.';
+      }
+    } else if (Number.isFinite(recF)) {
+      note = 'In the entered model nothing tips inside the swept range, but the collapsed branch does end at ' +
+        pct(recF, 3) + ' of baseline ' + name + '. If the system were already collapsed, that is what it would take to get out.';
+    } else {
+      note = 'In the entered model neither branch ends inside the swept range. Widen the range to find them.';
+    }
+    $('hystNote').textContent = note;
+  }
+
+  function drawHy(r) {
+    var s = $('hyChart'); clear(s);
+    var W = 760, H = 340, pad = { l: 72, r: 16, t: 16, b: 44 };
+    var pts = r.hy.down.concat(r.hy.up);
+    if (!pts.length) return;
+    var fmin = Infinity, fmax = -Infinity, ymax = 0, i;
+    for (i = 0; i < pts.length; i++) {
+      if (pts[i].f < fmin) fmin = pts[i].f;
+      if (pts[i].f > fmax) fmax = pts[i].f;
+      if (Number.isFinite(pts[i].x) && pts[i].x > ymax) ymax = pts[i].x;
+    }
+    if (!(fmax > fmin)) fmax = fmin + 1e-6;
+    if (!(ymax > 0)) ymax = 1;
+    ymax = ymax * 1.06;
+    var X = function (v) { return pad.l + (v - fmin) / (fmax - fmin) * (W - pad.l - pad.r); };
+    var Y = function (v) { return H - pad.b - (v / ymax) * (H - pad.t - pad.b); };
+    axes(s, W, H, pad, ctlName(r.control) + ' (percent of baseline)', 'attempt rate at the dependency (req/s)');
+    function path(arr, color, width) {
+      var d = '';
+      for (var j = 0; j < arr.length; j++) {
+        if (!Number.isFinite(arr[j].x)) continue;
+        d += (d ? 'L' : 'M') + X(arr[j].f).toFixed(2) + ' ' + Y(arr[j].x).toFixed(2) + ' ';
+      }
+      if (d) s.appendChild(svg('path', { d: d, fill: 'none', stroke: color, 'stroke-width': width, 'stroke-linejoin': 'round' }));
+    }
+    path(r.hy.down, 'var(--bad)', 3);
+    path(r.hy.up, 'var(--good)', 2);
+    if (1 >= fmin && 1 <= fmax) {
+      s.appendChild(svg('line', { x1: X(1), y1: pad.t, x2: X(1), y2: H - pad.b, stroke: 'var(--ink-faint)', 'stroke-width': 1, 'stroke-dasharray': '3 4' }));
+      tick(s, X(1), pad.t + 12, 'baseline', 'middle');
+    }
+    tick(s, X(fmin), H - pad.b + 16, (fmin * 100).toFixed(0) + '%', 'start');
+    tick(s, X(fmax), H - pad.b + 16, (fmax * 100).toFixed(0) + '%', 'end');
+    tick(s, pad.l - 8, H - pad.b + 4, '0', 'end');
+    tick(s, pad.l - 8, Y(ymax) + 10, fmt(ymax, 0), 'end');
+  }
+
+  function renderNum(r) {
+    var tb = $('numTable').tBodies[0];
+    clear(tb);
+    var c = r.model.c;
+    var a = Math.min(c * 0.999, r.model.lambda / r.model.mu);
+    if (!(a > 0)) a = c * 0.5;
+
+    function row(label, mine, other, otherLabel) {
+      var tr = document.createElement('tr');
+      tr.appendChild(el('td', null, label));
+      tr.appendChild(el('td', 'n', typeof mine === 'number' ? (Number.isFinite(mine) ? mine.toPrecision(12) : String(mine)) : String(mine)));
+      tr.appendChild(el('td', 'n', typeof other === 'number' ? (Number.isFinite(other) ? other.toPrecision(12) : String(other)) : String(other)));
+      var rel = 'n/a';
+      if (Number.isFinite(mine) && Number.isFinite(other) && other !== 0) {
+        rel = (Math.abs(mine - other) / Math.abs(other)).toExponential(2);
+      } else if (!Number.isFinite(other)) {
+        rel = 'other side is not finite';
+      }
+      tr.appendChild(el('td', 'n', rel));
+      tb.appendChild(tr);
+      if (otherLabel) tr.cells[2].title = otherLabel;
+    }
+
+    var s1 = 0;
+    for (var k = 1; k <= 170; k++) s1 += Math.log(k);
+    row('lgamma(171), against the sum of log(1) through log(170)', MFE.lgamma(171), s1);
+    row('Erlang C at c = ' + c + ', a = ' + fmt(a, 4) + ', against an Erlang B recursion', MFE.erlangC(c, a), MFE.erlangCviaB(c, a));
+    row('Same, against the textbook a^c / c! form', MFE.erlangC(c, a), MFE.erlangCnaive(c, a));
+    row('Erlang C at c = 400, a = 380, against an Erlang B recursion', MFE.erlangC(400, 380), MFE.erlangCviaB(400, 380));
+
+    var naive = MFE.erlangCnaive(c, a);
+    $('numNote').textContent = Number.isFinite(naive)
+      ? 'At c = ' + c + ' the textbook form still returns a finite value, so the two agree. Raise the server count past roughly 150 and it stops being finite while the log-space form keeps going. Try the 400 servers example.'
+      : 'At c = ' + c + ' the textbook a^c / c! form is not finite in float64, which is why the third row has nothing to compare against. The log-space form returns a usable number at the same inputs, and the Erlang B recursion in row 2 and row 4 confirms it independently.';
+  }
+
+  function readTr() {
+    return {
+      dur: MFE.parseNum($('tr_dur').value),
+      dip: MFE.parseNum($('tr_dip').value),
+      base: MFE.parseNum($('tr_base').value),
+      fac: MFE.parseNum($('tr_fac').value),
+      cap: MFE.parseNum($('tr_cap').value),
+      hor: MFE.parseNum($('tr_hor').value)
+    };
+  }
+
+  var JITLABEL = Object.create(null);
+  JITLABEL.none = 'No jitter (fixed schedule)';
+  JITLABEL.equal = 'Equal jitter';
+  JITLABEL.full = 'Full jitter';
+  var JITCOLOR = Object.create(null);
+  JITCOLOR.none = 'var(--bad)';
+  JITCOLOR.equal = 'var(--mid)';
+  JITCOLOR.full = 'var(--good)';
+
+  function runTransient() {
+    var tb = $('trTable').tBodies[0];
+    clear(tb);
+    clear($('trChart'));
+    state.tr = null;
+    var r = state.report;
+    if (!r) { $('trNote').textContent = 'Solve the model first.'; return; }
+    var t = readTr();
+    var bad = [];
+    if (!Number.isFinite(t.dur) || t.dur <= 0) bad.push('Trigger duration must be a number greater than 0.');
+    if (!Number.isFinite(t.dip) || t.dip < 0 || t.dip > 100) bad.push('Service rate during trigger must be between 0 and 100 percent.');
+    if (!Number.isFinite(t.base) || t.base <= 0) bad.push('Base retry delay must be a number greater than 0.');
+    if (!Number.isFinite(t.fac) || t.fac < 1 || t.fac > 16) bad.push('Backoff factor must be between 1 and 16.');
+    if (!Number.isFinite(t.cap) || t.cap <= 0) bad.push('Delay cap must be a number greater than 0.');
+    if (!Number.isFinite(t.hor) || t.hor <= 0 || t.hor > 3600) bad.push('Horizon must be between 0 and 3600 seconds.');
+    if (Number.isFinite(t.dur) && Number.isFinite(t.hor) && t.dur >= t.hor * 0.5) bad.push('Trigger duration must be under half the horizon, or there is no after to look at.');
+    if (bad.length) { $('trNote').textContent = bad.join(' '); return; }
+
+    var start = Math.min(t.hor * 0.15, 5);
+    var sh = { tStart: start, dur: t.dur, factor: t.dip / 100 };
+    var runs = [], i;
+    for (i = 0; i < MFE.JITTERS.length; i++) {
+      var j = MFE.JITTERS[i];
+      runs.push({
+        jitter: j,
+        out: MFE.transient(r.model, sh, { base: t.base / 1000, factor: t.fac, cap: t.cap / 1000, jitter: j }, t.hor, 12000)
+      });
+    }
+    state.tr = { runs: runs, sh: sh, cfg: t };
+
+    var healthyG = MFE.goodput(r.model.lambda, r.model);
+    for (i = 0; i < runs.length; i++) {
+      var o = runs[i].out;
+      var tr = document.createElement('tr');
+      tr.appendChild(el('td', null, Object.prototype.hasOwnProperty.call(JITLABEL, runs[i].jitter) ? JITLABEL[runs[i].jitter] : runs[i].jitter));
+      tr.appendChild(el('td', 'n', fmt(o.peak, 1) + ' req/s'));
+      tr.appendChild(el('td', 'n', fmt(o.tailMean, 1) + ' req/s'));
+      tr.appendChild(el('td', 'n', pct(o.tailZero, 1)));
+      var verdict;
+      if (!Number.isFinite(o.tailMean)) verdict = 'not computable';
+      else if (Number.isFinite(healthyG) && o.tailMean >= healthyG * 0.999) verdict = 'returns to the healthy branch';
+      else if (o.tailZero > 0.999) verdict = 'stays at zero goodput';
+      else verdict = 'settles into a repeating retry pulse';
+      tr.appendChild(el('td', null, verdict));
+      tb.appendChild(tr);
+    }
+    drawTr(r, runs, t);
+
+    var none = runs[0].out, full = runs[2].out;
+    var parts = [];
+    parts.push('Same model, same trigger, same equilibria. The steady-state solver above is unchanged by any of these three runs, because the delay never enters the amplification equation.');
+    if (Number.isFinite(none.peak) && Number.isFinite(full.peak)) {
+      parts.push('What changes is the peak: ' + fmt(none.peak, 1) + ' req/s with no jitter against ' + fmt(full.peak, 1) + ' req/s with full jitter, a factor of ' + fmt(none.peak / full.peak, 2) + '.');
+    }
+    if (Number.isFinite(healthyG) && Number.isFinite(none.tailMean) && none.tailMean < healthyG * 0.999 && Number.isFinite(full.tailMean) && full.tailMean >= healthyG * 0.999) {
+      parts.push('At this trigger duration the peak is the difference between recovering and not. Move the duration a little either way and both policies land on the same side again: jitter changes the outcome only inside a narrow band, and changes the peak everywhere.');
+    } else {
+      parts.push('At this trigger duration both policies land on the same side. Jitter still cuts the peak, but the outcome is set by the trigger, not by the schedule. Sweep the trigger duration to find the band where the schedule decides it.');
+    }
+    $('trNote').textContent = parts.join(' ');
+  }
+
+  function drawTr(r, runs, cfg) {
+    var s = $('trChart'); clear(s);
+    var W = 760, H = 340, pad = { l: 72, r: 16, t: 16, b: 44 };
+    var N = runs[0].out.N, dt = runs[0].out.dt;
+    var ymax = r.cap, i, j;
+    for (i = 0; i < runs.length; i++) if (Number.isFinite(runs[i].out.peak) && runs[i].out.peak > ymax) ymax = runs[i].out.peak;
+    ymax *= 1.06;
+    if (!(ymax > 0)) ymax = 1;
+    var T = N * dt;
+    var X = function (v) { return pad.l + (v / T) * (W - pad.l - pad.r); };
+    var Y = function (v) { return H - pad.b - (v / ymax) * (H - pad.t - pad.b); };
+    axes(s, W, H, pad, 'time (s)', 'attempt rate at the dependency (req/s)');
+    s.appendChild(svg('line', { x1: X(0), y1: Y(r.cap), x2: X(T), y2: Y(r.cap), stroke: 'var(--ink-faint)', 'stroke-width': 1, 'stroke-dasharray': '4 4' }));
+    var trg = svg('rect', {
+      x: X(state.tr.sh.tStart), y: pad.t,
+      width: Math.max(1, X(state.tr.sh.tStart + state.tr.sh.dur) - X(state.tr.sh.tStart)),
+      height: H - pad.t - pad.b, fill: 'var(--mid)', opacity: 0.16
+    });
+    s.appendChild(trg);
+    var step = Math.max(1, Math.floor(N / 900));
+    for (i = 0; i < runs.length; i++) {
+      var o = runs[i].out, d = '';
+      for (j = 0; j < N; j += step) {
+        if (!Number.isFinite(o.xs[j])) continue;
+        d += (d ? 'L' : 'M') + X(j * dt).toFixed(2) + ' ' + Y(o.xs[j]).toFixed(2) + ' ';
+      }
+      if (d) s.appendChild(svg('path', {
+        d: d, fill: 'none',
+        stroke: Object.prototype.hasOwnProperty.call(JITCOLOR, runs[i].jitter) ? JITCOLOR[runs[i].jitter] : 'var(--ink)',
+        'stroke-width': i === 0 ? 2.4 : 1.7, opacity: i === 0 ? 1 : 0.92
+      }));
+    }
+    tick(s, X(0), H - pad.b + 16, '0', 'start');
+    tick(s, X(T), H - pad.b + 16, fmt(T, 0), 'end');
+    tick(s, pad.l - 8, H - pad.b + 4, '0', 'end');
+    tick(s, pad.l - 8, Y(ymax) + 10, fmt(ymax, 0), 'end');
+    tick(s, pad.l - 8, Y(r.cap) + 4, 'cap', 'end');
+  }
+
+  function reportText() {
+    var r = state.report;
+    if (!r) return 'Metastable Failure Explorer\nNo solved model. Fix the inputs and press Solve.\n';
+    var L = [];
+    var name = ctlName(r.control);
+    L.push('Metastable Failure Explorer');
+    L.push('https://0xelitesystem.github.io/metastable-failure-explorer/');
+    L.push('');
+    L.push('All figures below are properties of the model as entered, not of any real service.');
+    L.push('');
+    L.push('MODEL');
+    L.push('  dependency servers c   : ' + fmt(r.model.c, 0));
+    L.push('  mean service time      : ' + fmt(1000 / r.model.mu, 4) + ' ms  (mu = ' + fmt(r.model.mu, 4) + ' req/s per server)');
+    L.push('  dependency capacity    : ' + fmt(r.cap, 4) + ' req/s');
+    L.push('  arrival rate lambda    : ' + fmt(r.model.lambda, 4) + ' req/s  (' + pct(r.util, 3) + ' utilization)');
+    L.push('  client timeout         : ' + fmt(r.model.T * 1000, 4) + ' ms  (' + fmt(r.k, 3) + ' mean service times)');
+    L.push('  max attempts           : ' + fmt(r.model.attempts, 0));
+    L.push('  retry budget           : ' + (r.model.budget === null ? 'none' : pct(r.model.budget, 3) + ' of first attempts'));
+    L.push('  worst-case multiplier  : ' + fmt(r.maxMult, 4) + 'x  (' + fmt(r.maxMult * r.model.lambda, 3) + ' req/s)');
+    L.push('');
+    L.push('EQUILIBRIA (roots of lambda_eff = lambda * sum over i of p(lambda_eff)^i)');
+    for (var i = 0; i < r.eq.length; i++) {
+      var e = r.eq[i];
+      var kind = !e.stable ? 'unstable' : ((e.p > 0.5 || e.rho >= 1) ? 'stable, collapsed' : 'stable, healthy');
+      L.push('  ' + (i + 1) + '. lambda_eff = ' + fmt(e.x, 4) + ' req/s   util ' + pct(e.rho, 3) +
+        '   p(timeout) ' + (Number.isFinite(e.p) ? e.p.toExponential(4) : 'n/a') +
+        '   goodput ' + fmt(e.goodput, 4) + ' req/s   slope ' + fmt(e.slope, 5) + '   ' + kind);
+    }
+    L.push('');
+    L.push('HYSTERESIS (swept control: ' + name + ')');
+    L.push('  healthy branch ends at : ' + (r.tip ? pct(r.tip.f, 4) + ' of baseline' : 'not inside the swept range'));
+    L.push('  collapsed branch ends  : ' + (r.rec ? pct(r.rec.f, 4) + ' of baseline' : 'not inside the swept range'));
+    if (r.tip && r.rec) {
+      var gap = (r.control === 'lambda') ? (r.tip.f - r.rec.f) : (r.rec.f - r.tip.f);
+      L.push('  hysteresis width       : ' + pct(Math.abs(gap), 4) + ' of baseline');
+    }
+    L.push('  sweep resolution       : ' + r.hy.steps + ' steps per leg, ' + r.hy.grid + ' grid points per solve');
+    if (state.tr) {
+      L.push('');
+      L.push('TRANSIENT (trigger: ' + fmt(state.tr.cfg.dur, 4) + ' s at ' + fmt(state.tr.cfg.dip, 3) +
+        ' percent service rate; backoff base ' + fmt(state.tr.cfg.base, 3) + ' ms, factor ' +
+        fmt(state.tr.cfg.fac, 3) + ', cap ' + fmt(state.tr.cfg.cap, 3) + ' ms)');
+      for (var j = 0; j < state.tr.runs.length; j++) {
+        var o = state.tr.runs[j].out;
+        L.push('  ' + (Object.prototype.hasOwnProperty.call(JITLABEL, state.tr.runs[j].jitter) ? JITLABEL[state.tr.runs[j].jitter] : 'unknown') +
+          ': peak ' + fmt(o.peak, 3) + ' req/s, mean goodput over the last quarter ' +
+          fmt(o.tailMean, 3) + ' req/s, ' + pct(o.tailZero, 2) + ' of that window at zero goodput');
+      }
+      L.push('  The equilibria above are identical for all three policies. Delay does not appear in the amplification equation.');
+    }
+    L.push('');
+    L.push('MODEL LIMITS');
+    L.push('  Exponential service times. Real tails are heavier, so a real dependency times out sooner.');
+    L.push('  Fluid transient with no queue memory between bins.');
+    L.push('  One client population, one dependency, no failover and no cache effects.');
+    var out = L.join('\n');
+    return out.replace(/\bNaN\b|\bInfinity\b|\bundefined\b|\bnull\b/g, 'n/a') + '\n';
+  }
+
+  var FIX = Object.create(null);
+  FIX.ex1 = {
+    v: { c: '25', s: '25', l: '600', t: '200', a: '3', b: '', ctl: 'mu', lo: '50', hi: '200',
+      dur: '0.5', dip: '50', base: '2000', fac: '2', cap: '8000', hor: '60' },
+    note: 'A service at 60 percent utilization of a 25-server dependency, 25 ms mean service time, 200 ms client timeout, three attempts, no retry budget. The dependency takes a capacity or latency shock. Watch where the healthy branch ends and where the collapsed branch ends. They are not the same number and they are not on the same side of 100 percent.'
+  };
+  FIX.ex2 = {
+    v: { c: '25', s: '25', l: '600', t: '200', a: '3', b: '10', ctl: 'mu', lo: '50', hi: '200',
+      dur: '0.5', dip: '50', base: '2000', fac: '2', cap: '8000', hor: '60' },
+    note: 'The same model with the Google SRE client retry budget switched on: still three attempts, but retries capped at 10 percent of first attempts, which caps amplification at 1.1x. Compare the tipping point and the recovery point against the previous example. Only one of the two moves.'
+  };
+  FIX.ex3 = {
+    v: { c: '30', s: '100', l: '280', t: '1000', a: '2', b: '', ctl: 'lambda', lo: '30', hi: '120',
+      dur: '10', dip: '2', base: '1000', fac: '2', cap: '8000', hor: '120' },
+    note: 'The worked example from section 2.1 of Bronson et al., HotOS 2021: a 300 QPS dependency, one query plus one retry after a 1 s timeout, running at 280 QPS when a network outage hits. The paper reports that retries hold the dependency at 560 QPS and that recovery needs load under 150 QPS. Both fall out of the amplification arithmetic here, and neither depends on the queueing model. The paper specifies its dependency as a latency step at 300 QPS rather than an M/M/c queue, so this fixture substitutes a 30-server, 100 ms M/M/c with the same 300 QPS capacity. The branch-existence numbers survive that substitution; the exact retry-budget threshold does not, and comes out slightly tighter than the paper step model gives.'
+  };
+  FIX.ex4 = {
+    v: { c: '400', s: '25', l: '9600', t: '200', a: '3', b: '', ctl: 'mu', lo: '50', hi: '200',
+      dur: '0.5', dip: '50', base: '2000', fac: '2', cap: '8000', hor: '60' },
+    note: 'Four hundred servers, so the textbook a^c / c! form of Erlang C has nothing finite to return. Check the numerics table at the bottom: the third row loses its comparison while the log-space column keeps producing a number that the Erlang B recursion in row 2 agrees with.'
+  };
+
+  function loadFixture(key) {
+    if (!Object.prototype.hasOwnProperty.call(FIX, key)) return;
+    var f = FIX[key];
+    $('in_c').value = f.v.c; $('in_s').value = f.v.s; $('in_l').value = f.v.l;
+    $('in_t').value = f.v.t; $('in_a').value = f.v.a; $('in_b').value = f.v.b;
+    $('in_ctl').value = f.v.ctl; $('in_lo').value = f.v.lo; $('in_hi').value = f.v.hi;
+    $('tr_dur').value = f.v.dur; $('tr_dip').value = f.v.dip; $('tr_base').value = f.v.base;
+    $('tr_fac').value = f.v.fac; $('tr_cap').value = f.v.cap; $('tr_hor').value = f.v.hor;
+    $('fixnote').textContent = f.note;
+    run();
+  }
+
+  function applyTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    $('theme').textContent = t === 'dark' ? 'Light mode' : 'Dark mode';
+    try { localStorage.setItem('mfe-theme', t); } catch (e) { /* private mode */ }
+  }
+
+  $('theme').addEventListener('click', function () {
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+  $('run').addEventListener('click', run);
+  $('runT').addEventListener('click', runTransient);
+  $('ex1').addEventListener('click', function () { loadFixture('ex1'); });
+  $('ex2').addEventListener('click', function () { loadFixture('ex2'); });
+  $('ex3').addEventListener('click', function () { loadFixture('ex3'); });
+  $('ex4').addEventListener('click', function () { loadFixture('ex4'); });
+  $('copy').addEventListener('click', function () {
+    var txt = reportText();
+    var btn = $('copy');
+    function done(ok) {
+      btn.textContent = ok ? 'Copied' : 'Copy failed';
+      setTimeout(function () { btn.textContent = 'Copy report'; }, 1600);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function () { done(true); }, function () { done(false); });
+    } else {
+      done(false);
+    }
+  });
+  var ids = ['in_c', 'in_s', 'in_l', 'in_t', 'in_a', 'in_b', 'in_lo', 'in_hi'];
+  for (var i = 0; i < ids.length; i++) {
+    $(ids[i]).addEventListener('keydown', function (ev) { if (ev.key === 'Enter') run(); });
+  }
+  $('in_ctl').addEventListener('change', run);
+
+  var t0 = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  $('theme').textContent = t0 === 'dark' ? 'Light mode' : 'Dark mode';
+  loadFixture('ex1');
+})();
+</script>
+</body>
+</html>
